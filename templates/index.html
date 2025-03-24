@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Remote Shutdown Control</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f4f4f8;
+        }
+        .card {
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div class="container mx-auto max-w-4xl">
+        <div class="bg-white shadow-2xl rounded-2xl overflow-hidden">
+            <div class="bg-gradient-to-r from-blue-500 to-purple-600 p-6">
+                <h1 class="text-3xl font-bold text-white text-center">Remote Shutdown Control</h1>
+            </div>
+            
+            <div class="p-8">
+                <div class="grid md:grid-cols-2 gap-6">
+                    {% for pc_id, computer in computers.items() %}
+                    <div class="card bg-gray-50 rounded-xl shadow-md p-6 transform transition-all hover:scale-105">
+                        <div class="flex justify-between items-center mb-4">
+                            <h3 class="text-xl font-semibold text-gray-800">{{ computer.name }}</h3>
+                            <i class="fas fa-desktop text-blue-500"></i>
+                        </div>
+                        
+                        <div class="space-y-3">
+                            <div class="flex space-x-2">
+                                <button class="shutdown-btn flex-1 bg-red-500 text-white py-2 rounded-lg hover:bg-red-600 transition" data-pc="{{ pc_id }}">
+                                    <i class="fas fa-power-off mr-2"></i>Apagar Ahora
+                                </button>
+                                <button class="schedule-btn flex-1 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition" data-pc="{{ pc_id }}">
+                                    <i class="far fa-clock mr-2"></i>Programar
+                                </button>
+                                <button class="test-btn flex-1 bg-green-500 text-white py-2 rounded-lg hover:bg-green-600 transition" data-pc="{{ pc_id }}">
+                                    <i class="fas fa-check-circle mr-2"></i>Probar
+                                </button>
+                            </div>
+                            
+                            <div class="schedule-form hidden" id="schedule-form-{{ pc_id }}">
+                                <div class="flex space-x-2">
+                                    <input type="number" class="flex-grow p-2 border rounded-lg" id="minutes-{{ pc_id }}" value="30" min="1" max="180">
+                                    <button class="confirm-schedule bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600" data-pc="{{ pc_id }}">
+                                        Confirmar
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="timer-info hidden" id="timer-{{ pc_id }}">
+                                <div class="bg-yellow-100 p-3 rounded-lg">
+                                    <div class="flex justify-between items-center">
+                                        <p class="text-yellow-800">Apagado en <span class="remaining-time font-bold"></span> minutos</p>
+                                        <button class="cancel-timer text-red-500 hover:text-red-700" data-pc="{{ pc_id }}">
+                                            <i class="fas fa-times-circle"></i>
+                                        </button>
+                                    </div>
+                                    <div class="w-full bg-yellow-200 rounded-full h-2.5 mt-2">
+                                        <div class="bg-yellow-500 h-2.5 rounded-full timer-progress"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="status-message hidden rounded-lg p-3 text-center" id="status-{{ pc_id }}"></div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        $(document).ready(function() {
+            updateTimers();
+            setInterval(updateTimers, 5000);
+            
+            $('.shutdown-btn').click(function() {
+                const pcId = $(this).data('pc');
+                if (confirm('¿Estás seguro de que quieres apagar esta computadora ahora?')) {
+                    $.post(`/shutdown/${pcId}`, function(response) {
+                        showStatus(pcId, response.message, response.success);
+                    }).fail(function() {
+                        showStatus(pcId, "Error de conexión con el servidor", false);
+                    });
+                }
+            });
+            
+            $('.test-btn').click(function() {
+                const pcId = $(this).data('pc');
+                $.post(`/test/${pcId}`, function(response) {
+                    showStatus(pcId, response.message, response.success);
+                }).fail(function() {
+                    showStatus(pcId, "Error de conexión con el servidor", false);
+                });
+            });
+            
+            $('.schedule-btn').click(function() {
+                const pcId = $(this).data('pc');
+                $(`#schedule-form-${pcId}`).removeClass('hidden');
+            });
+            
+            $('.confirm-schedule').click(function() {
+                const pcId = $(this).data('pc');
+                const minutes = $(`#minutes-${pcId}`).val();
+                
+                $.post(`/schedule/${pcId}`, { minutes: minutes }, function(response) {
+                    $(`#schedule-form-${pcId}`).addClass('hidden');
+                    showStatus(pcId, response.message, response.success);
+                    updateTimers();
+                }).fail(function() {
+                    showStatus(pcId, "Error de conexión con el servidor", false);
+                });
+            });
+            
+            $('.cancel-timer').click(function() {
+                const pcId = $(this).data('pc');
+                
+                $.post(`/cancel/${pcId}`, function(response) {
+                    showStatus(pcId, response.message, response.success);
+                    $(`#timer-${pcId}`).addClass('hidden');
+                }).fail(function() {
+                    showStatus(pcId, "Error de conexión con el servidor", false);
+                });
+            });
+            
+            function showStatus(pcId, message, success) {
+                const statusDiv = $(`#status-${pcId}`);
+                statusDiv.text(message);
+                statusDiv.removeClass('bg-red-200 bg-green-200 text-red-800 text-green-800');
+                statusDiv.addClass(success ? 'bg-green-200 text-green-800' : 'bg-red-200 text-red-800');
+                statusDiv.removeClass('hidden');
+                
+                setTimeout(function() {
+                    statusDiv.addClass('hidden');
+                }, 5000);
+            }
+            
+            function updateTimers() {
+                $.get('/status', function(timers) {
+                    $('.timer-info').addClass('hidden');
+                    
+                    for (const pcId in timers) {
+                        const timer = timers[pcId];
+                        if (timer.active) {
+                            const timerDiv = $(`#timer-${pcId}`);
+                            timerDiv.find('.remaining-time').text(timer.remaining);
+                            
+                            const progressPercent = (timer.remaining / timer.total) * 100;
+                            timerDiv.find('.timer-progress').css('width', progressPercent + '%');
+                            
+                            timerDiv.removeClass('hidden');
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
